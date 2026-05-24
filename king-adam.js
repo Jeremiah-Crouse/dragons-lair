@@ -91,19 +91,21 @@ function waitForServe(timeout = 30000) {
   });
 }
 
-const TOOL_INSTRUCTIONS = `You can take action by putting commands in your response. Each command must be on its own line starting with >> :
+const TOOL_INSTRUCTIONS = `You have full tool access. You can use any built-in tool (Bash, Read, Grep, Glob, etc.) freely.
+
+In addition, you can reach Telegram and Yjs via custom commands. Each command on its own line starting with >> :
 
 >> telegram send chat_id="7408716961" text="Hello!"
 >> telegram reply idx=0 text="I'm here"
 >> yjs write text="Board content here"
 
-Use the chat_id from the [Telegram: ... (chat_id X)] header above. Available APIs:
-- telegram send — send a message to a Telegram chat
+Available custom commands:
+- telegram send — send a Telegram message
 - telegram reply — reply to inbox message by index
-- yjs write — write text to the shared board
+- yjs write — write to the shared board
 - telegram inbox — read your inbox
 
-Only include commands you want executed. Your thinking/reasoning won't be sent — only your response text and commands.`;
+Use built-in tools for file access, searches, and system operations. Use >> commands for Telegram/Yjs only.`;
 
 function buildPrompt(update) {
   const msg = update.message || {};
