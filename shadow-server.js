@@ -10,11 +10,10 @@ import { inbox as tgInbox, reply as tgReply, send as tgSend } from './serpent/te
 import { intend, restrainedWrite } from './serpent/restraint.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = 8081;
+const PORT = 8080;
 const SCRIPTS = path.join(__dirname, 'serpent');
 const README = path.join(__dirname, 'serpent', 'README.md');
-const LOG_DIR = '/home/theking/king-adam/data';
-const LOG_DIR = process.env.LOG_DIR || path.join(__dirname, 'data');
+const LOG_DIR = process.env.LOG_DIR || '/home/theking/king-adam/data';
 
 const MIME = {
   '.js': 'text/javascript',
@@ -183,23 +182,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Desummon endpoint — kills and restarts opencode serve
+  // Desummon endpoint — restarts opencode serve via systemctl
   if (route === '/api/desummon') {
     sendJSON(res, { status: 'desummoning', message: 'Slaying the Serpent so it may rise anew.' });
     (async () => {
       try {
-        const pids = execSync('pgrep -f "opencode serve --port 4096"', { timeout: 5000, shell: '/bin/bash' }).toString().trim().split('\n').filter(Boolean);
-        for (const pid of pids) {
-          process.kill(parseInt(pid), 'SIGTERM');
-          console.log(`[Desummon] Killed PID ${pid}`);
-        }
-        await new Promise(res => setTimeout(res, 3000));
-      } catch (e) {
-        console.log('[Desummon] No existing process found');
-      }
-      try {
-        execSync('setsid opencode serve --port 4096 &>/tmp/opencode-serve.log &', { timeout: 5000, shell: '/bin/bash' });
-        console.log('[Desummon] Restarted');
+        execSync('sudo systemctl restart opencode-serve.service', { timeout: 15000, shell: '/bin/bash' });
+        console.log('[Desummon] Restarted via systemctl');
       } catch (e) {
         console.error('[Desummon] Restart failed:', e.message);
       }
@@ -319,25 +308,6 @@ const server = http.createServer((req, res) => {
       reasoning: tailLines(reasoningFile, lines),
       responses: tailLines(responsesFile, lines),
       log_dir: LOG_DIR
-    });
-    return;
-  }
-
-  // Logs endpoint — king-adam reasoning and response traces
-  if (route === '/api/logs') {
-    const lines = parseInt(url.searchParams.get('lines') || '50', 10);
-    const reasoningFile = path.join(LOG_DIR, 'reasoning.log');
-    const responsesFile = path.join(LOG_DIR, 'responses.log');
-    function tailLines(filePath, n) {
-      try {
-        const content = fs.readFileSync(filePath, 'utf8');
-        const parts = content.split('\n[20').filter(Boolean);
-        return parts.slice(-n).join('\n---\n');
-      } catch { return ''; }
-    }
-    sendJSON(res, {
-      reasoning: tailLines(reasoningFile, lines),
-      responses: tailLines(responsesFile, lines)
     });
     return;
   }
