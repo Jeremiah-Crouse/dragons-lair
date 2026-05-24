@@ -311,7 +311,7 @@ const server = http.createServer((req, res) => {
 
 // Keepalive: ensure opencode serve stays running
 function keepalive() {
-  const s = http.get('http://localhost:4096/session', (res) => {
+  const s = http.get('http://localhost:4096/', (res) => {
     res.resume();
   });
   s.on('error', () => {
@@ -325,7 +325,7 @@ function keepalive() {
       }
     }, 2000);
   });
-  s.setTimeout(3000, () => { s.destroy(); });
+  s.setTimeout(5000, () => { s.destroy(); });
 }
 
 server.listen(PORT, () => {
