@@ -152,12 +152,15 @@ async function handleUpdate(update) {
 function parseCommands(text) {
   const cmds = [];
   for (const line of text.split('\n')) {
-    const m = line.trim().match(/^>>\s*(\w+)\s+(.+)$/);
+    const m = line.trim().match(/^>>\s*(\w+)(?:\s+(\w+))?(?:\s+(.+))?$/);
     if (!m) continue;
     const action = m[1];
     const args = {};
-    for (const kv of m[2].matchAll(/(\w+)=("(?:[^"\\]|\\.)*"|\S+)/g)) {
-      args[kv[1]] = kv[2].replace(/^"|"$/g, '');
+    if (m[2] && !m[2].includes('=')) args.action = m[2];
+    if (m[3]) {
+      for (const kv of m[3].matchAll(/(\w+)=("(?:[^"\\]|\\.)*"|\S+)/g)) {
+        args[kv[1]] = kv[2].replace(/^"|"$/g, '');
+      }
     }
     cmds.push({ action, args });
   }
