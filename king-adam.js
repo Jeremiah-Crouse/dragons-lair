@@ -61,10 +61,6 @@ function api(method, pathname, body, timeoutMs = 120000, port = API_PORT) {
   });
 }
 
-const TOOL_INSTRUCTIONS = `Messages are delivered directly to you. To respond, use:
-
->> telegram send chat_id="7408716961" text="Your message here"
-
 const TOOL_INSTRUCTIONS = `You have full tool access. You can use any built-in tool (Bash, Read, Grep, Glob, etc.) freely.
 
 In addition, you can reach Telegram and Yjs via custom commands. Each command on its own line starting with >> :
