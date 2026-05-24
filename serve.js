@@ -1,0 +1,868 @@
+// serve.js
+import express from "express";
+import http from "http";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+import * as Y from "yjs";
+import { WebsocketProvider } from "y-websocket";
+import WebSocket from "ws";
+import multer from "multer";
+import { Jimp } from "jimp";
+import Stripe from "stripe";
+import archivesRouter from "./archives.js";
+import { GoogleGenAI } from "@google/genai";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, ".env") });
+
+const app = express();
+const PORT = Number(process.env.PORT || 5000);
+const HOST = process.env.HOST || "0.0.0.0";
+
+const ARCHIVES_DIR = path.join(__dirname, 'archives');
+const COMMENTS_DIR = path.join(__dirname, 'comments');
+const PUBLIC_NOTES_DIR = path.join(__dirname, 'public', 'notes');
+const DIST_NOTES_DIR = path.join(__dirname, 'dist', 'notes');
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const EVE_MEMORY_DIR = process.env.EVE_MEMORY_DIR || path.join(__dirname, 'eve-memory');
+
+// Ensure all directories exist
+[ARCHIVES_DIR, COMMENTS_DIR, PUBLIC_NOTES_DIR, DIST_NOTES_DIR, UPLOADS_DIR, EVE_MEMORY_DIR].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    console.log(`📁 Creating directory: ${dir}`);
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
+
+// Multer setup using disk storage
+const upload = multer({ dest: UPLOADS_DIR });
+
+// Users file path
+const USERS_FILE = path.join(__dirname, 'users.csv');
+
+// Stripe setup
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+// Load users from CSV file
+function loadUsers() {
+  const users = {};
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const content = fs.readFileSync(USERS_FILE, 'utf-8');
+      const lines = content.trim().split('\n');
+      for (const line of lines) {
+        const [name, password, active] = line.split(',');
+        if (name && password) {
+          users[name.trim()] = { 
+            password: password.trim(), 
+            active: active?.trim() === 'true' 
+          };
+        }
+      }
+      console.log(`👥 Loaded ${Object.keys(users).length} users`);
+    }
+  } catch (err) {
+    console.log('Failed to load users:', err.message);
+  }
+  return users;
+}
+
+// Reload users on demand
+function getUsers() {
+  return loadUsers();
+}
+
+// Simple token store (in-memory for now)
+const authTokens = new Map();
+
+function generateToken() {
+  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+}
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || "gemini-2.0-flash-lite";
+
+const COLOR_MAP = {
+  white: { r: 255, g: 255, b: 255 },
+  gold: { r: 255, g: 215, b: 0 },
+  purple: { r: 160, g: 32, b: 240 },
+};
+
+async function processNoteImage(inputPath, outputPath, colorName = 'white') {
+  console.log(`🎨 Processing image: ${inputPath} -> ${colorName}`);
+  const targetColor = COLOR_MAP[colorName] || COLOR_MAP.white;
+  
+  const image = await Jimp.read(inputPath);
+  
+  // Enhance image for better extraction
+  image.greyscale(); // Convert to black and white
+  image.normalize(); // Stretch levels to use full range
+  image.contrast(0.6); // Push grays toward black or white
+  
+  const width = image.bitmap.width;
+  const height = image.bitmap.height;
+  
+  let minX = width, maxX = 0, minY = height, maxY = 0;
+  let foundAny = false;
+
+  image.scan(0, 0, width, height, function(x, y, idx) {
+    const r = this.bitmap.data[idx + 0];
+    const a = this.bitmap.data[idx + 3];
+
+    if (r < 110 && a > 0) {
+      this.bitmap.data[idx + 0] = targetColor.r;
+      this.bitmap.data[idx + 1] = targetColor.g;
+      this.bitmap.data[idx + 2] = targetColor.b;
+      this.bitmap.data[idx + 3] = 255;
+      
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      foundAny = true;
+    } else {
+      this.bitmap.data[idx + 3] = 0;
+    }
+  });
+
+  if (!foundAny) return false;
+
+  const padding = 10;
+  const left = Math.max(0, minX - padding);
+  const top = Math.max(0, minY - padding);
+  const right = Math.min(width, maxX + padding);
+  const bottom = Math.min(height, maxY + padding);
+  
+  image.crop({ x: left, y: top, w: right - left, h: bottom - top });
+  await image.write(outputPath);
+  return true;
+}
+
+function getMimeTypeForFile(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+
+  switch (ext) {
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    default:
+      return 'image/png';
+  }
+}
+
+async function getImageAltText(filePath) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return 'Uploaded note image';
+  }
+
+  try {
+    const buffer = await fs.promises.readFile(filePath);
+    const mimeType = getMimeTypeForFile(filePath);
+    const dataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+
+    const response = await fetch(`${GEMINI_API_URL}/${encodeURIComponent(GEMINI_VISION_MODEL)}:generateContent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: buffer.toString('base64'),
+                },
+              },
+              {
+                text: 'Write concise HTML alt text for this image in one short sentence. Be specific, literal, and avoid phrases like "image of" or "picture of".',
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          maxOutputTokens: 80,
+          temperature: 0.2,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      console.error(`💥 Gemini alt-text error: ${response.status} ${body.slice(0, 300)}`);
+      return 'Uploaded note image';
+    }
+
+    const result = await response.json();
+    const parts = result?.candidates?.[0]?.content?.parts ?? [];
+    const content = Array.isArray(parts)
+      ? parts
+          .map((part) => (part && typeof part.text === 'string' ? part.text : ''))
+          .join(' ')
+          .trim()
+      : '';
+    const altText = content;
+
+    return altText || 'Uploaded note image';
+  } catch (error) {
+    console.error('💥 Failed to generate alt text:', error);
+    return 'Uploaded note image';
+  }
+}
+
+// Yjs Setup — deferred so it doesn't block server startup
+let sharedDoc, provider, serpentDoc, serpentProv, serpentText, serpentCursorPos, serpentReady;
+
+function initYjs() {
+  sharedDoc = new Y.Doc();
+  provider = new WebsocketProvider('ws://localhost:1234', 'crousia-shared-room', sharedDoc, { WebSocketPolyfill: WebSocket });
+
+  serpentDoc = new Y.Doc();
+  serpentProv = new WebsocketProvider('ws://localhost:1234/ysl', 'crousia-shared-room', serpentDoc, { WebSocketPolyfill: WebSocket });
+  serpentText = serpentDoc.getText('crousia-editor');
+  serpentCursorPos = 0;
+  serpentProv.awareness.setLocalStateField('user', { name: 'Serpent', color: '#cc3300', serpent: true });
+  serpentProv.awareness.setLocalStateField('color', '#cc3300');
+  serpentReady = new Promise(ok => {
+    if (serpentProv.synced) ok();
+    else serpentProv.once('synced', ok);
+  });
+}
+
+// Init Yjs after server starts
+setTimeout(initYjs, 100);
+
+function updateSerpentCursor(pos) {
+  serpentCursorPos = Math.max(0, Math.min(pos, serpentText.length));
+  serpentProv.awareness.setLocalStateField('cursor', { anchor: serpentCursorPos, head: serpentCursorPos });
+}
+
+app.use(express.json());
+// Authentication: check if name exists
+app.post('/api/auth/check-name', (req, res) => {
+  const { name } = req.body;
+  console.log(`🔍 Checking name: ${name}`);
+  
+  if (!name) {
+    return res.status(400).json({ error: 'Name required' });
+  }
+  
+  const users = getUsers();
+  if (users[name] && users[name].active) {
+    return res.json({ valid: true });
+  }
+  
+  console.log(`❌ Name not found or inactive: ${name}`);
+  res.json({ valid: false, redirect: true });
+});
+
+// Authentication: validate password
+app.post('/api/auth/login', (req, res) => {
+  const { name, password } = req.body;
+  console.log(`🔐 Login attempt: ${name}`);
+  
+  if (!name || !password) {
+    return res.status(400).json({ error: 'Name and password required' });
+  }
+  
+  const users = getUsers();
+  if (users[name] && users[name].password === password && users[name].active) {
+    const token = generateToken();
+    authTokens.set(token, name);
+    console.log(`✅ Login success: ${name}`);
+    return res.json({ token, name, authorized: true });
+  }
+  
+  console.log(`❌ Login failed: ${name}`);
+  res.status(401).json({ error: 'Invalid credentials' });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = req.body.token;
+  if (token && authTokens.has(token)) {
+    const name = authTokens.get(token);
+    authTokens.delete(token);
+    console.log(`👋 Logged out: ${name}`);
+  }
+  res.json({ ok: true });
+});
+
+// Pending signups storage (name -> { password, timestamp })
+const pendingSignups = new Map();
+
+// Test signup (skip payment)
+app.post('/api/auth/signup-test', (req, res) => {
+  const { name, password } = req.body;
+  console.log(`🧪 Test signup: ${name}`);
+  
+  if (!name || !password) {
+    return res.status(400).json({ error: 'Name and password required' });
+  }
+  
+  const users = getUsers();
+  if (users[name]) {
+    return res.status(400).json({ error: 'Name already exists' });
+  }
+  
+  try {
+    const fs = require('fs');
+    const userLine = `\n${name},${password},true`;
+    fs.appendFileSync(USERS_FILE, userLine);
+    console.log(`✅ Test user added: ${name}`);
+    res.json({ success: true, name });
+  } catch (err) {
+    console.error('Test signup failed:', err);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+// Stripe checkout session
+app.post('/api/auth/signup', async (req, res) => {
+  const { name, password } = req.body;
+  console.log(`💳 Signup request: ${name}`);
+  
+  if (!name || !password) {
+    return res.status(400).json({ error: 'Name and password required' });
+  }
+  
+  const users = getUsers();
+  if (users[name]) {
+    return res.status(400).json({ error: 'Name already exists' });
+  }
+  
+  try {
+    // Store pending signup
+    pendingSignups.set(name, { password, timestamp: Date.now() });
+    
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: 'Crousia Editing Access',
+            description: 'Monthly subscription for editing access'
+          },
+          unit_amount: 500, // $5.00
+          recurring: {
+            interval: 'month'
+          }
+        },
+        quantity: 1
+      }],
+      mode: 'subscription',
+      success_url: `${req.headers.origin}/?signup=success`,
+      cancel_url: `${req.headers.origin}/?signup=cancel`,
+      metadata: {
+        name
+      }
+    });
+    
+    res.json({ sessionId: session.id, url: session.url });
+  } catch (err) {
+    console.error('Stripe error:', err);
+    res.status(500).json({ error: 'Payment setup failed' });
+  }
+});
+
+// Stripe webhook
+app.post('/api/auth/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  
+  try {
+    const event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    
+    console.log(`📝 Stripe webhook: ${event.type}`);
+    
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const customerId = session.customer;
+      const customerEmail = session.customer_email;
+      const metadata = session.metadata;
+      
+      // Check if this was a signup
+      for (const [name, pending] of pendingSignups) {
+        if (pending.password) {
+          // Add to users CSV as active
+          try {
+            const fs = require('fs');
+            const userLine = `\n${name},${pending.password},true`;
+            fs.appendFileSync(USERS_FILE, userLine);
+            console.log(`✅ Added new user: ${name}`);
+            pendingSignups.delete(name);
+          } catch (err) {
+            console.error('Failed to add user:', err);
+          }
+          break;
+        }
+      }
+    }
+    
+    if (event.type === 'invoice.payment_succeeded') {
+      console.log(`✅ Payment succeeded`);
+    }
+    
+    if (event.type === 'invoice.payment_failed') {
+      console.log(`❌ Payment failed`);
+    }
+    
+    res.json({ received: true });
+  } catch (err) {
+    console.error('Webhook error:', err);
+    res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+});
+
+// Admin: reactivate user
+app.post('/api/auth/reactivate', (req, res) => {
+  const { name } = req.body;
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  
+  // Simple admin check - could be more secure
+  if (!name) {
+    return res.status(400).json({ error: 'Name required' });
+  }
+  
+  // Read and update CSV
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      let content = fs.readFileSync(USERS_FILE, 'utf-8');
+      const lines = content.trim().split('\n');
+      const newLines = lines.map(line => {
+        const [n, p, a] = line.split(',');
+        if (n?.trim() === name) {
+          return `${n.trim()},${p.trim()},true`;
+        }
+        return line;
+      });
+      fs.writeFileSync(USERS_FILE, newLines.join('\n'));
+      console.log(`✅ Reactivated: ${name}`);
+      return res.json({ success: true });
+    }
+  } catch (err) {
+    console.error('Reactivate error:', err);
+  }
+  res.status(500).json({ error: 'Failed to reactivate' });
+});
+
+// Verify token utility
+function isAuthenticated(req) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return { authorized: false };
+  const name = authTokens.get(token);
+  return { authorized: !!name, name };
+}
+
+// API Routes
+app.post('/api/upload-note', (req, res, next) => {
+  const auth = isAuthenticated(req);
+  if (!auth.authorized) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}, upload.single('image'), async (req, res) => {
+  console.log("📥 New upload request...");
+  const tempPath = req.file?.path;
+  
+  try {
+    const { username } = req.body;
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    console.log(`👤 User: ${username}, File: ${req.file.originalname}`);
+
+    let color = 'white';
+    if (username === 'King Jeremiah') color = 'gold';
+    if (username === 'Queen Lauren') color = 'purple';
+
+    const today = new Date().toLocaleDateString('en-CA');
+    const fileName = `note-${today}-${Date.now()}.png`;
+    const publicPath = path.join(PUBLIC_NOTES_DIR, fileName);
+    const distPath = path.join(DIST_NOTES_DIR, fileName);
+
+    const success = await processNoteImage(tempPath, publicPath, color);
+    
+    if (success) {
+      if (!fs.existsSync(DIST_NOTES_DIR)) fs.mkdirSync(DIST_NOTES_DIR, { recursive: true });
+      fs.copyFileSync(publicPath, distPath);
+      const altText = await getImageAltText(publicPath);
+      console.log(`✅ Success: ${fileName}`);
+      res.json({ success: true, url: `/notes/${fileName}`, altText });
+    } else {
+      res.status(400).json({ error: 'No note content detected in image' });
+    }
+  } catch (e) {
+    console.error('💥 Upload error:', e.message);
+    res.status(500).json({ error: e.message });
+  } finally {
+    if (tempPath && fs.existsSync(tempPath)) {
+      fs.unlinkSync(tempPath);
+    }
+  }
+});
+
+app.delete('/api/delete-note', async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'No URL provided' });
+
+  const fileName = path.basename(url);
+  if (!fileName.startsWith('note-') || !fileName.endsWith('.png')) {
+    return res.status(403).json({ error: 'Invalid file deletion request' });
+  }
+
+  // Check if this note is referenced in any archive (except TODAY's) before deleting
+  const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+  if (fs.existsSync(ARCHIVES_DIR)) {
+    const archives = fs.readdirSync(ARCHIVES_DIR).filter(f => f.endsWith('.json'));
+    for (const archive of archives) {
+      // Skip today's archive - it will be overwritten anyway
+      if (archive === `${today}.json`) continue;
+      const content = fs.readFileSync(path.join(ARCHIVES_DIR, archive), 'utf-8');
+      if (content.includes(fileName)) {
+        console.log(`⛔ NOT deleting ${fileName} - still referenced in ${archive}`);
+        return res.json({ success: false, reason: 'referenced' });
+      }
+    }
+  }
+
+  console.log(`🗑️ Deleting note: ${fileName}`);
+  
+  try {
+    const publicPath = path.join(PUBLIC_NOTES_DIR, fileName);
+    const distPath = path.join(DIST_NOTES_DIR, fileName);
+
+    if (fs.existsSync(publicPath)) fs.unlinkSync(publicPath);
+    if (fs.existsSync(distPath)) fs.unlinkSync(distPath);
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error('💥 Delete error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/archive-today', (req, res) => {
+  const content = req.body?.content || '';
+  const today = req.body?.date || new Date().toLocaleDateString('en-CA');
+  const archivePath = path.join(ARCHIVES_DIR, `${today}.json`);
+  fs.writeFileSync(archivePath, content);
+  res.json({ success: true, length: content.length, date: today });
+});
+
+// Proxy for Quantum Randomness to bypass CORS
+app.get('/api/proxy/qrng', async (req, res) => {
+  const { length = 4, format = 'HEX' } = req.query;
+  const upstream = process.env.QRNG_UPSTREAM_URL || process.env.CLOUDFLARE_QRNG_URL || 'https://lfdr.de/qrng_api/qrng';
+  const url = new URL(upstream);
+  url.searchParams.set('length', length);
+  url.searchParams.set('format', format);
+
+  try {
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error(`QRNG responded with ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (data && data.qrn) {
+      return res.json(data);
+    }
+
+    if (data && (data.hex || data.random || data.seed || data.value)) {
+      return res.json(data);
+    }
+
+    throw new Error('QRNG response did not include entropy');
+  } catch (error) {
+    console.error('QRNG Proxy Error:', error.message);
+    res.status(502).json({ error: 'Failed to fetch quantum randomness' });
+  }
+});
+
+// Proxy for OpenCode AI (Eve text generation) with Gemini fallback
+app.post('/api/proxy/opencode', express.json(), async (req, res) => {
+  const apiKey = process.env.OPENCODE_API_KEY;
+
+  // Try OpenCode first
+  if (apiKey) {
+    try {
+      const response = await fetch('https://opencode.ai/zen/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(req.body),
+      });
+
+      if (response.ok) {
+        if (req.body.stream) {
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            res.write(chunk);
+          }
+          res.end();
+        } else {
+          const data = await response.json();
+          res.json(data);
+        }
+        return;
+      }
+      console.error('OpenCode API error:', response.status);
+    } catch (error) {
+      console.error('OpenCode Proxy Error:', error.message);
+    }
+  }
+
+  // Fallback to Gemini
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    return res.status(502).json({ error: 'All AI providers failed (no API keys)' });
+  }
+
+  try {
+    const genai = new GoogleGenAI({ apiKey: geminiKey });
+    const geminiModel = process.env.GEMINI_VISION_MODEL || "gemini-2.5-flash-lite";
+    const system = req.body.system || '';
+    const messages = req.body.messages || [];
+    const userMessage = messages.find(m => m.role === 'user')?.content || '';
+    const temperature = req.body.temperature ?? 2.0;
+
+    if (req.body.stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      const stream = await genai.models.generateContentStream({
+        model: geminiModel,
+        contents: [{ role: "user", parts: [{ text: userMessage }] }],
+        config: {
+          temperature,
+          ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+        },
+      });
+
+      for await (const chunk of stream) {
+        if (chunk.text) {
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: chunk.text } }] })}\n\n`);
+        }
+      }
+      res.write('data: [DONE]\n\n');
+      res.end();
+    } else {
+      const response = await genai.models.generateContent({
+        model: geminiModel,
+        contents: [{ role: "user", parts: [{ text: userMessage }] }],
+        config: {
+          temperature,
+          ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+        },
+      });
+      res.json({
+        choices: [{ message: { content: response.text } }]
+      });
+    }
+  } catch (error) {
+    console.error('Gemini fallback error:', error.message);
+    res.status(502).json({ error: 'All AI providers failed' });
+  }
+});
+
+// Eve memory endpoints for the browser editor
+const CONV_DIR = path.join(__dirname, 'conversations');
+fs.mkdirSync(CONV_DIR, { recursive: true });
+
+function convKey(name) { return name.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase().slice(0, 64); }
+function loadConv(name) { try { return JSON.parse(fs.readFileSync(path.join(CONV_DIR, convKey(name) + '.json'), 'utf8')); } catch { return []; } }
+function saveConv(name, h) { fs.writeFileSync(path.join(CONV_DIR, convKey(name) + '.json'), JSON.stringify(h.slice(-20)), 'utf8'); }
+
+const EVE_SESSION = "ses_33a12ed11ffehUNKRrg8ttdKyg";
+const OC_SERVE_PORT = 4096;
+
+function ocPost(path, body) {
+  return new Promise((ok, no) => {
+    const d = JSON.stringify(body);
+    const r = http.request({ hostname: 'localhost', port: OC_SERVE_PORT, path, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(d) } }, res => { let b=''; res.on('data', c=>b+=c); res.on('end', ()=> { try { ok(JSON.parse(b)); } catch { ok(null); } }); });
+    r.on('error', no); r.write(d); r.end();
+  });
+}
+function ocGet(path) {
+  return new Promise((ok, no) => {
+    http.get({ hostname: 'localhost', port: OC_SERVE_PORT, path }, res => { let b=''; res.on('data', c=>b+=c); res.on('end', ()=> { try { ok(JSON.parse(b)); } catch { ok(null); } }); }).on('error', no);
+  });
+}
+
+// Serpent endpoint — calls opencode serve API, streams parts as SSE
+app.options('/api/serpent/act', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.sendStatus(200);
+});
+
+app.post('/api/serpent/act', express.json(), async (req, res) => {
+  try {
+    const txt = String(req.body?.text || '').trim();
+    if (!txt) return res.status(400).json({ error: 'text required' });
+    const name = String(req.body?.user?.name || 'someone').trim();
+    const history = loadConv(name);
+
+    // Read document context around serpent's cursor
+    await serpentReady;
+    updateSerpentCursor(serpentText.length);
+    const fullDoc = serpentText.toString();
+    const cursorPos = Math.min(serpentCursorPos, fullDoc.length);
+    const beforeCursor = fullDoc.slice(0, cursorPos).slice(-4000);
+    const afterCursor = fullDoc.slice(cursorPos).slice(0, 4000);
+    const prompt = `[Document context before cursor:]\n${beforeCursor}\n\n[Document after cursor:]\n${afterCursor}\n\nUser: ${txt}`;
+
+    // Subscribe to SSE from opencode serve for real-time streaming
+    const partTypes = new Map();
+    let reasoningAccum = '', responseAccum = '';
+    let streamEnded = false;
+
+    const sseReq = http.get(`http://localhost:${OC_SERVE_PORT}/event`, (sseRes) => {
+      let buf = '';
+      sseRes.on('data', d => {
+        buf += d.toString();
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          try {
+            const ev = JSON.parse(line.slice(5));
+            if (streamEnded) return;
+
+            if (ev.type === 'message.part.updated') {
+              const p = ev.properties?.part;
+              if (p && !p.time?.end && (p.type === 'reasoning' || p.type === 'text')) {
+                partTypes.set(p.id, p.type);
+              }
+            }
+
+            if (ev.type === 'message.part.delta') {
+              const props = ev.properties;
+              if (props.sessionID !== EVE_SESSION) return;
+              const ptype = partTypes.get(props.partID);
+              if (ptype === 'reasoning') {
+                reasoningAccum += props.delta;
+                sse('reasoning', { text: props.delta });
+              } else if (ptype === 'text') {
+                responseAccum += props.delta;
+                sse('text', { text: props.delta });
+              }
+            }
+          } catch {}
+        }
+      });
+      sseRes.on('end', () => { streamEnded = true; });
+    });
+    sseReq.on('error', () => { streamEnded = true; });
+
+    await new Promise(r => setTimeout(r, 500));
+
+    const result = await ocPost(`/session/${EVE_SESSION}/message`, {
+      model: { providerID: 'opencode-go', modelID: 'deepseek-v4-flash' },
+      parts: [{ type: 'text', text: prompt }]
+    });
+
+    streamEnded = true;
+
+    const reasoning = reasoningAccum.trim() || '';
+    const response = responseAccum.trim() || result?.parts?.findLast?.(p => p.type === 'text')?.text?.trim() || '[no response]';
+
+    // Always insert into the Yjs document so the user sees it
+    serpentDoc.transact(() => {
+      const prefix = serpentCursorPos > 0 && serpentText.toString().slice(serpentCursorPos - 1, serpentCursorPos) !== '\n' ? '\n\n' : '';
+      serpentText.insert(serpentCursorPos, prefix + response);
+      updateSerpentCursor(serpentCursorPos + prefix.length + response.length);
+    }, 'serpent');
+
+    history.push({ role: 'user', content: txt }, { role: 'assistant', content: response });
+    saveConv(name, history);
+    sse('done', { reply: response, reasoning });
+    try { res.end(); } catch {}
+  } catch (e) {
+    if (!res.headersSent) return res.status(500).json({ error: e.message });
+    try { res.end(); } catch {}
+  }
+});
+
+app.post('/api/eve-memory', express.json(), (req, res) => {
+  const { type, data } = req.body || {};
+  if (!type || !data) return res.status(400).json({ error: 'type and data required' });
+  const p = path.join(EVE_MEMORY_DIR, 'events.jsonl');
+  fs.appendFileSync(p, JSON.stringify({ type, data, _t: new Date().toISOString() }) + '\n');
+  res.json({ ok: true });
+});
+
+app.get('/api/comments/:date', (req, res) => {
+  try {
+    const { date } = req.params;
+    const p = path.join(COMMENTS_DIR, `${date}.json`);
+    if (fs.existsSync(p)) {
+      res.json({ date, comments: JSON.parse(fs.readFileSync(p, 'utf-8')) });
+    } else {
+      res.json({ date, comments: [] });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/comments/:date', (req, res) => {
+  try {
+    const { date } = req.params;
+    const { name, email, text } = req.body;
+    if (!name || !text) return res.status(400).json({ error: 'Name and comment text are required' });
+    const p = path.join(COMMENTS_DIR, `${date}.json`);
+    let comments = [];
+    if (fs.existsSync(p)) comments = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    const newComment = { name, email: email || '', text, timestamp: new Date().toISOString() };
+    comments.push(newComment);
+    fs.writeFileSync(p, JSON.stringify(comments, null, 2));
+    res.json({ success: true, comment: newComment });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.use('/api', archivesRouter);
+
+// Static Hosting
+app.use(express.static(path.join(__dirname, "dist")));
+app.use(express.static(path.join(__dirname, "public")));
+
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
+});
+
+// Safe Error Handler
+app.use((err, req, res, next) => {
+  const errMsg = err ? (err.message || String(err)) : 'Unknown Error';
+  console.error('🚨 Server Error:', errMsg);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: errMsg });
+});
+
+const server = http.createServer(app);
+server.listen(PORT, HOST, () => {
+  console.log(`🚀 Federated Server running on http://${HOST}:${PORT}`);
+});

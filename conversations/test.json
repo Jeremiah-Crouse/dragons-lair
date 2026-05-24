@@ -1,0 +1,1 @@
+[{"role":"user","content":"ping"},{"role":"assistant","content":"Architecture split done. `eve.js` is CLI-only like Adam, `serve.js` is web-only. You can run `bash eve.sh` in a terminal to start Eve independently of the website. Both processes run separately, just like Adam's setup."}]

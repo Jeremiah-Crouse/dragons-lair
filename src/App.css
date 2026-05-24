@@ -1,0 +1,506 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+@keyframes frame-anim {
+  from { background-position: 0px 0; }
+  to { background-position: -6144px 0; }
+}
+
+@keyframes frame-anim-reverse {
+  from { background-position: -6144px 0; }
+  to { background-position: 0px 0; }
+}
+
+:root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #0f0f1a;
+    --gold: rgb(255, 241, 184);
+    --text-primary: #f5e6c8;
+    --text-dim: #a89880;
+}
+
+body {
+    margin: 0;
+    font-family: 'Cormorant Garamond', serif;
+    background: url('/stars-tile-mobile.jpg') repeat, radial-gradient(circle at top, var(--bg-primary), #000) fixed !important;
+    background-size: 512px 512px, auto;
+    color: var(--text-primary);
+    min-height: 100vh;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    display: flow-root;
+}
+
+@media (max-width: 768px) {
+    body {
+        background: url('/stars-tile-mobile.jpg') repeat, radial-gradient(circle at top, var(--bg-primary), #000) !important;
+        background-size: 1536px 1024px, auto;
+    }
+}
+
+/* Nav Bar */
+.nav {
+    display: flex;
+    background: rgba(15, 15, 26, 0.6);
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 2rem;
+    border-bottom: 1px solid var(--gold);
+    min-height: 90px;
+    height: 90px;
+    overflow: visible;
+}
+
+.nav-brand {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0.25rem 0;
+}
+
+.nav-links {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex: 0 0 auto;
+    height: 100%;
+}
+
+.nav-links > a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    text-decoration: none;
+    cursor: pointer;
+    flex: 0 0 auto;
+    padding: 0;
+}
+
+.nav-links > a::after {
+    content: '•';
+    color: black;
+    margin: 0 0.5rem;
+    font-size: 1.2rem;
+}
+
+.nav-links > a:last-child::after {
+    content: '';
+    margin: 0;
+}
+
+.nav-links a.active { color: var(--gold); }
+
+/* Mobile Nav */
+.nav-mobile {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 70px;
+    height: 70px;
+}
+
+.nav-brand-mobile {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    height: 100%;
+    margin-right: auto;
+}
+
+.hamburger {
+    background: none;
+    border: 1px solid var(--gold);
+    cursor: pointer;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    z-index: 1001;
+    width: 40px;
+    height: 40px;
+}
+
+.hamburger-line {
+    display: block;
+    width: 20px;
+    height: 2px;
+    background: var(--gold);
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.hamburger.open .hamburger-line:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+}
+
+.hamburger.open .hamburger-line:nth-child(2) {
+    opacity: 0;
+}
+
+.hamburger.open .hamburger-line:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+}
+
+.mobile-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    background: rgba(15, 15, 26, 0.95);
+    border: 1px solid var(--gold);
+    border-top: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    z-index: 1000;
+}
+
+.mobile-dropdown a {
+    display: flex;
+    justify-content: center;
+    color: var(--text-dim);
+    text-decoration: none;
+    cursor: pointer;
+    padding: 0.5rem 0;
+    width: 100%;
+}
+
+.mobile-dropdown a.active {
+    color: var(--gold);
+}
+
+.nav-title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--gold);
+    letter-spacing: 0.2em;
+}
+
+.nav-logo {
+    height: clamp(25px, 5vw, 40px); /* Will stay between 25px and 40px */
+}
+
+/* Audio Player */
+.audio-player {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(15, 15, 26, 0.9);
+    border: 1px solid var(--gold);
+    padding: 10px 15px;
+    z-index: 100;
+}
+
+.audio-toggle {
+    background: none;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.audio-toggle:hover {
+    background: var(--gold);
+    color: var(--bg-primary);
+}
+
+.audio-label {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+}
+
+/* Main Content */
+.container {
+    max-width: 800px;
+    margin: 25px auto;
+    text-align: center;
+}
+
+/* h1 styles moved to Editor.css */
+
+/* Editor Shell */
+.editor-container {
+    background: rgba(15, 15, 26, 0.6);
+    border: 1px solid var(--gold);
+    padding: 2rem;
+    margin: 2rem auto;
+}
+
+/* The !important is key here to beat Lexical's default black text */
+.editor-input span {
+  transition: color 0.2s ease;
+}
+
+/* Update this in your index.css */
+.text-purple {
+  /* A more vibrant, high-contrast purple */
+  color: #c48eff !important; 
+  
+  /* Adds a subtle 'neon' glow that helps it stand out on black */
+  text-shadow: 0 0 8px rgba(196, 142, 255, 0.4);
+}
+
+.text-gold {
+  color: rgb(255, 241, 184) !important;
+  text-shadow: 0 0 8px rgba(201, 162, 39, 0.3);
+}
+
+::selection {
+  background: rgba(196, 142, 255, 0.3); /* Subtle purple selection */
+  color: white;
+}
+
+.links-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.links-inner {
+  max-width: 800px;
+  width: 100%;
+  text-align: center;
+}
+
+.links-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.link-card {
+  display: block;
+  padding: 16px 32px;
+  background: rgba(15, 15, 26, 0.6);
+  border: 1px solid var(--gold); /* Gold */
+  color: var(--text-primary);
+  text-decoration: none;
+  text-align: center;
+  transition: all 0.25s ease;
+  font-family: 'Cormorant Garamond', serif;
+}
+
+.link-card:hover {
+  background: #d4af37; /* Gold */
+  color: #1a1a2e; /* Dark Bg */
+}
+
+/* Inject these into your App.css to style the marked output */
+.doc-content h1, .doc-content h2, .doc-content h3 {
+    text-align: center;
+    margin: 1rem 0;
+}
+
+.doc-content code {
+    background: rgba(255,255,255,0.1);
+    color: #00ff88;
+    padding: 2px 4px;
+}
+
+.doc-content em {
+    color: #a0d0ff;
+}
+
+/* Splash Screen */
+.splash-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.splash-image {
+    max-width: 90%;
+    max-height: 80vh;
+    object-fit: contain;
+}
+
+.splash-progress-container {
+    width: 200px;
+    height: 4px;
+    background: rgba(212, 175, 55, 0.3);
+    margin-top: 20px;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.splash-progress-bar {
+    height: 100%;
+    background: #d4af37;
+    transition: width 0.05s linear;
+}
+
+.splash-percentage {
+    color: #d4af37;
+    margin-top: 10px;
+    font-size: 14px;
+    font-family: 'Cormorant Garamond', serif;
+}
+
+.about-content {
+    text-align: justify;
+    background: rgba(15, 15, 26, 0.6);
+    border: 1px solid var(--gold);
+    padding: 2rem;
+    margin: 2rem auto;
+}
+
+.doc-content {
+    background: rgba(15, 15, 26, 0.6);
+    border: 1px solid var(--gold);
+    padding: 2rem;
+    margin: 2rem auto;
+}
+
+/* Comments Section */
+.comments-section {
+  margin-top: 40px;
+  border-top: 1px solid var(--gold);
+  padding-top: 20px;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.comments-section h3 {
+  color: var(--gold);
+  margin-bottom: 20px;
+}
+
+.comments-list {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 30px;
+}
+
+.comment-item {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 15px;
+  margin-bottom: 15px;
+  border-radius: 8px;
+  border-left: 4px solid var(--gold);
+}
+
+.comment-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 0.9em;
+}
+
+.commenter-link {
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.commenter-link:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+.comment-header strong {
+  color: var(--gold);
+}
+
+.comment-date {
+  color: var(--text-dim);
+}
+
+.comment-text {
+  margin: 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.comment-form {
+  background: rgba(15, 15, 26, 0.8);
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid var(--gold);
+}
+
+.comment-form h4 {
+  margin-top: 0;
+  color: var(--gold);
+}
+
+.form-row {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.form-row .form-group {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.no-comments-text {
+  font-style: italic;
+  color: var(--text-dim);
+  margin-bottom: 20px;
+}
+
+.comment-form input,
+.comment-form textarea {
+  width: 100%;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--gold);
+  color: var(--text-primary);
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+.comment-form textarea {
+  height: 100px;
+  resize: vertical;
+}
+
+.comment-form button {
+  background: var(--gold);
+  color: var(--bg-primary);
+  border: none;
+  padding: 10px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.comment-form button:hover {
+  background: #f5e6c8;
+}
+
+.comment-form button:disabled {
+  background: #666;
+  cursor: not-allowed;
+}

@@ -1,0 +1,79 @@
+{
+  "name": "crousia.com",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:image": "node scripts/build-image.cjs",
+    "build:textures": "node scripts/generate-textures.cjs",
+    "start": "node server.js",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@google/genai": "^2.3.0",
+    "@huggingface/transformers": "^4.2.0",
+    "@lexical/code": "^0.14.5",
+    "@lexical/link": "^0.14.5",
+    "@lexical/list": "^0.14.5",
+    "@lexical/markdown": "^0.14.5",
+    "@lexical/react": "^0.14.5",
+    "@lexical/rich-text": "^0.14.5",
+    "@lexical/table": "^0.14.5",
+    "@lexical/utils": "^0.14.5",
+    "@lexical/yjs": "^0.14.5",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jimp": "^1.6.1",
+    "level": "^10.0.0",
+    "lexical": "^0.14.5",
+    "marked": "^17.0.4",
+    "memory-lock": "^1.0.5",
+    "multer": "^2.1.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "stripe": "^22.0.2",
+    "three": "^0.183.2",
+    "ws": "^8.19.0",
+    "y-indexeddb": "^9.0.12",
+    "y-leveldb": "^0.2.0",
+    "y-websocket": "^1.5.4",
+    "yjs": "^13.6.29"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "canvas": "^3.2.2",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "gif-encoder": "^0.7.2",
+    "gifenc": "^1.0.3",
+    "globals": "^16.5.0",
+    "sharp": "^0.34.5",
+    "svg-to-pdfkit": "^0.1.8",
+    "vite": "^8.0.0-beta.13"
+  },
+  "overrides": {
+    "vite": "^8.0.0-beta.13"
+  },
+  "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
+  "main": "eslint.config.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jeremiah-Crouse/crousia-v2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Jeremiah-Crouse/crousia-v2/issues"
+  },
+  "homepage": "https://github.com/Jeremiah-Crouse/crousia-v2#readme"
+}

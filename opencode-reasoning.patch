@@ -1,0 +1,177 @@
+From c01edbbcf659a330538a0a80cd2db9be7ca8a903 Mon Sep 17 00:00:00 2001
+From: root <root@localhost.localdomain>
+Date: Thu, 21 May 2026 11:47:21 +0000
+Subject: [PATCH] Add reasoning_content extraction from DeepSeek streaming
+ chunks
+
+- Extract reasoning_content from OpenAI streaming chunks, emit as EventThinkingDelta
+- Include reasoning field in final JSON output alongside response
+- Pass reasoning from message to FormatOutput in app.go
+---
+ internal/app/app.go             |  3 +-
+ internal/format/format.go       | 27 ++++++++++--------
+ internal/llm/provider/openai.go | 49 ++++++++++++++++++++++++++++++---
+ 3 files changed, 63 insertions(+), 16 deletions(-)
+
+diff --git a/internal/app/app.go b/internal/app/app.go
+index abdc143..590106a 100644
+--- a/internal/app/app.go
++++ b/internal/app/app.go
+@@ -152,8 +152,9 @@ func (a *App) RunNonInteractive(ctx context.Context, prompt string, outputFormat
+ 	if result.Message.Content().String() != "" {
+ 		content = result.Message.Content().String()
+ 	}
++	reasoning := result.Message.ReasoningContent().String()
+ 
+-	fmt.Println(format.FormatOutput(content, outputFormat))
++	fmt.Println(format.FormatOutput(content, reasoning, outputFormat))
+ 
+ 	logging.Info("Non-interactive run completed", "session_id", sess.ID)
+ 
+diff --git a/internal/format/format.go b/internal/format/format.go
+index 3d91ba0..405a966 100644
+--- a/internal/format/format.go
++++ b/internal/format/format.go
+@@ -56,17 +56,17 @@ func GetHelpText() string {
+ 		Text, JSON)
+ }
+ 
+-// FormatOutput formats the AI response according to the specified format
+-func FormatOutput(content string, formatStr string) string {
++// FormatOutput formats the AI response according to the specified format.
++// reasoning is optional — pass empty string if not available.
++func FormatOutput(content string, reasoning string, formatStr string) string {
+ 	format, err := Parse(formatStr)
+ 	if err != nil {
+-		// Default to text format on error
+ 		return content
+ 	}
+ 
+ 	switch format {
+ 	case JSON:
+-		return formatAsJSON(content)
++		return formatAsJSON(content, reasoning)
+ 	case Text:
+ 		fallthrough
+ 	default:
+@@ -74,24 +74,29 @@ func FormatOutput(content string, formatStr string) string {
+ 	}
+ }
+ 
+-// formatAsJSON wraps the content in a simple JSON object
+-func formatAsJSON(content string) string {
+-	// Use the JSON package to properly escape the content
++// formatAsJSON wraps the content and reasoning in a JSON object.
++func formatAsJSON(content string, reasoning string) string {
+ 	response := struct {
+-		Response string `json:"response"`
++		Response  string `json:"response"`
++		Reasoning string `json:"reasoning,omitempty"`
+ 	}{
+-		Response: content,
++		Response:  content,
++		Reasoning: reasoning,
+ 	}
+ 
+ 	jsonBytes, err := json.MarshalIndent(response, "", "  ")
+ 	if err != nil {
+-		// In case of an error, return a manually formatted JSON
+ 		jsonEscaped := strings.Replace(content, "\\", "\\\\", -1)
+ 		jsonEscaped = strings.Replace(jsonEscaped, "\"", "\\\"", -1)
+ 		jsonEscaped = strings.Replace(jsonEscaped, "\n", "\\n", -1)
+ 		jsonEscaped = strings.Replace(jsonEscaped, "\r", "\\r", -1)
+ 		jsonEscaped = strings.Replace(jsonEscaped, "\t", "\\t", -1)
+-
++		reasoningEscaped := strings.Replace(reasoning, "\\", "\\\\", -1)
++		reasoningEscaped = strings.Replace(reasoningEscaped, "\"", "\\\"", -1)
++		reasoningEscaped = strings.Replace(reasoningEscaped, "\n", "\\n", -1)
++		if reasoning != "" {
++			return fmt.Sprintf("{\n  \"response\": \"%s\",\n  \"reasoning\": \"%s\"\n}", jsonEscaped, reasoningEscaped)
++		}
+ 		return fmt.Sprintf("{\n  \"response\": \"%s\"\n}", jsonEscaped)
+ 	}
+ 
+diff --git a/internal/llm/provider/openai.go b/internal/llm/provider/openai.go
+index 8a561c7..0421095 100644
+--- a/internal/llm/provider/openai.go
++++ b/internal/llm/provider/openai.go
+@@ -253,7 +253,7 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
+ 	attempts := 0
+ 	eventChan := make(chan ProviderEvent)
+ 
+-	go func() {
++		go func() {
+ 		for {
+ 			attempts++
+ 			openaiStream := o.client.Chat.Completions.NewStreaming(
+@@ -263,6 +263,7 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
+ 
+ 			acc := openai.ChatCompletionAccumulator{}
+ 			currentContent := ""
++			currentThinking := ""
+ 			toolCalls := make([]message.ToolCall, 0)
+ 
+ 			for openaiStream.Next() {
+@@ -277,6 +278,15 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
+ 						}
+ 						currentContent += choice.Delta.Content
+ 					}
++					// Extract reasoning_content from the raw delta JSON
++					// DeepSeek sends reasoning_content separate from content
++					if reasoning, ok := extractReasoning(choice.Delta); ok && reasoning != "" {
++						eventChan <- ProviderEvent{
++							Type:    EventThinkingDelta,
++							Content: reasoning,
++						}
++						currentThinking += reasoning
++					}
+ 				}
+ 			}
+ 
+@@ -417,9 +427,40 @@ func WithReasoningEffort(effort string) OpenAIOption {
+ 		switch effort {
+ 		case "low", "medium", "high":
+ 			defaultReasoningEffort = effort
+-		default:
+-			logging.Warn("Invalid reasoning effort, using default: medium")
++	default:
++		logging.Warn("Invalid reasoning effort, using default: medium")
++	}
++	options.reasoningEffort = defaultReasoningEffort
++}
++
++// extractReasoning attempts to extract reasoning_content from a choice delta.
++// DeepSeek sends reasoning_content as a separate field in the delta.
++func extractReasoning(delta interface{}) (string, bool) {
++	if delta == nil {
++		return "", false
++	}
++	// The delta may have a JSON field for raw access in the openai Go beta library.
++	// Try to access reasoning_content via json.RawMessage if available.
++	type reasoningChecker interface {
++		GetReasoningContent() string
++	}
++	if r, ok := delta.(reasoningChecker); ok {
++		return r.GetReasoningContent(), true
++	}
++	// Fallback: marshal and check raw JSON
++	b, err := json.Marshal(delta)
++	if err != nil {
++		return "", false
++	}
++	var raw map[string]interface{}
++	if err := json.Unmarshal(b, &raw); err != nil {
++		return "", false
++	}
++	if rc, ok := raw["reasoning_content"]; ok {
++		if s, ok := rc.(string); ok {
++			return s, true
+ 		}
+-		options.reasoningEffort = defaultReasoningEffort
+ 	}
++	return "", false
++}
+ }
+-- 
+2.51.0
+

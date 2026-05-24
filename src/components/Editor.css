@@ -1,0 +1,235 @@
+.editor-input span[style*="color"] {
+  color: inherit !important;
+}
+
+.editor-container {
+  position: relative;
+  line-height: 1.6;
+  font-weight: 400;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  background: rgba(15, 15, 26, 0.6);
+}
+
+.editor-input {
+  min-height: 400px;
+  resize: none;
+  font-size: 16px;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-weight: 400;
+  caret-color: var(--text-primary);
+  padding: 15px;
+  outline: none;
+}
+
+.editor-input i,
+.editor-input em,
+.editor-input .editor-italic,
+.editor-input [style*="italic"],
+span[style*="font-style: italic"],
+[data-italic="true"],
+i, em {
+  font-style: italic !important;
+  font-family: 'Cormorant Garamond', Georgia, serif !important;
+  color: inherit;
+}
+
+.editor-input b,
+.editor-input strong,
+.editor-input .editor-bold,
+.editor-input [style*="font-weight: 700"],
+span[style*="font-weight: 700"] {
+  font-weight: 700 !important;
+  color: inherit;
+}
+
+.editor-placeholder {
+  color: #999;
+  overflow: hidden;
+  position: absolute;
+  text-overflow: ellipsis;
+  top: 15px;
+  left: 15px;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Markdown Rendering Styles */
+.editor-bold, .text-gold.editor-bold, .text-purple.editor-bold { font-weight: 700 !important; color: inherit; }
+.editor-italic, .text-gold.editor-italic, .text-purple.editor-italic { font-style: italic !important; color: inherit; }
+.editor-strikethrough, .text-gold.editor-strikethrough, .text-purple.editor-strikethrough { text-decoration: line-through; }
+.editor-code, .text-gold.editor-code, .text-purple.editor-code { font-family: monospace; background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 3px; }
+
+/* Heading centering */
+h1, .editor-h1, [data-h1] { font-size: 24px; font-weight: 700; margin: 10px 0; text-align: center !important; }
+h2, .editor-h2, [data-h2] { font-size: 20px; font-weight: 700; margin: 8px 0; text-align: center !important; }
+h3, .editor-h3, [data-h3] { font-size: 18px; font-weight: 700; margin: 6px 0; text-align: center !important; }
+
+.editor-input {
+  text-align: justify;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.editor-ul { padding-left: 20px; list-style-type: disc; }
+
+/* Fix for bold+italic */
+.editor-bold.editor-italic {
+  font-weight: 700 !important;
+  font-style: italic !important;
+}
+
+/* Horizontal rule */
+.editor-hr {
+  border: none;
+  border-top: 1px solid var(--gold);
+  margin: 20px 0;
+}
+
+/* Color text based on inline style from AuthorshipColorPlugin */
+/* Purple - spans inside headings with purple color (rgb format) */
+.editor-input h1 span[style*="rgb(160, 32, 240)"],
+.editor-input h2 span[style*="rgb(160, 32, 240)"],
+.editor-input h3 span[style*="rgb(160, 32, 240)"] {
+  color: #A020F0 !important;
+}
+
+/* Gold - spans inside headings with gold color (rgb format) */
+.editor-input h1 span[style*="rgb(255, 215, 0)"],
+.editor-input h2 span[style*="rgb(255, 215, 0)"],
+.editor-input h3 span[style*="rgb(255, 215, 0)"] {
+  color: var(--gold) !important;
+}
+
+/* Regular text spans */
+.editor-input span[style*="rgb(160, 32, 240)"] {
+  color: #A020F0 !important;
+}
+
+.editor-input span[style*="rgb(255, 215, 0)"] {
+  color: var(--gold) !important;
+}
+
+/* Remote User Cursors */
+.collaboration-cursor__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 1px solid #0d0d0d;
+  border-right: 1px solid #0d0d0d;
+  word-break: normal;
+  pointer-events: none;
+}
+
+.collaboration-cursor__label {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: normal;
+  user-select: none;
+  color: #fff;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px 3px 3px 0;
+  white-space: nowrap;
+}
+
+/* Placeholder styling */
+.editor-placeholder {
+  color: var(--text-dim) !important;
+}
+
+.toolbar {
+  display: flex;
+  margin-bottom: 1px;
+  background: rgba(15, 15, 26, 0.8);
+  padding: 4px;
+  border-bottom: 1px solid var(--gold);
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+  vertical-align: middle;
+}
+
+.toolbar-item {
+  border: 0;
+  display: flex;
+  background: none;
+  border-radius: 4px;
+  padding: 8px;
+  cursor: pointer;
+  vertical-align: middle;
+  color: var(--gold);
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.toolbar-item:hover {
+  background-color: rgba(212, 175, 55, 0.1);
+}
+
+.editor-image {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Page system - sticky tabs */
+.page-tabs-sticky {
+  display: flex;
+  gap: 4px;
+  padding: 10px;
+  background: rgba(15, 15, 26, 0.9);
+  border-bottom: 1px solid var(--gold);
+  overflow-x: auto;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.page-tab {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--gold);
+  border-radius: 3px;
+  color: var(--gold);
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.page-tab:hover {
+  opacity: 0.8;
+}
+
+.page-tab.active {
+  opacity: 1;
+}
+
+.page-tab:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Page view - fixed height container showing only one page */
+.editor-page-container {
+  position: relative;
+  min-height: 70vh;
+}
+
+.editor-page-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.editor-page-content.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
