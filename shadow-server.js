@@ -13,6 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 8081;
 const SCRIPTS = path.join(__dirname, 'serpent');
 const README = path.join(__dirname, 'serpent', 'README.md');
+const LOG_DIR = process.env.LOG_DIR || path.join(__dirname, 'data');
 
 const MIME = {
   '.js': 'text/javascript',
@@ -128,6 +129,7 @@ const server = http.createServer((req, res) => {
         desummon: '/api/desummon',
         yjs: '/api/yjs',
         telegram: '/api/telegram',
+        logs: '/api/logs',
       },
     };
     if (req.headers.accept?.includes('text/html')) {
@@ -173,6 +175,7 @@ const server = http.createServer((req, res) => {
         { path: '/api/desummon', description: 'Restart opencode serve (GET)' },
         { path: '/api/yjs', description: 'Read (GET) or write (POST) Yjs document' },
         { path: '/api/telegram', description: 'Read inbox (GET) or send message (POST) Telegram' },
+        { path: '/api/logs', description: 'King-Adam reasoning and response logs' },
       ]
     };
     sendJSON(res, sitemap);
@@ -296,6 +299,26 @@ const server = http.createServer((req, res) => {
       return;
     }
     sendJSON(res, { error: 'Method not allowed' }, 405);
+    return;
+  }
+
+  // Logs endpoint — reasoning and response traces from king-adam
+  if (route === '/api/logs') {
+    const lines = parseInt(url.searchParams.get('lines') || '50', 10);
+    const reasoningFile = path.join(LOG_DIR, 'reasoning.log');
+    const responsesFile = path.join(LOG_DIR, 'responses.log');
+    function tailLines(filePath, n) {
+      try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        const parts = content.split('\n[20').filter(Boolean);
+        return parts.slice(-n).join('\n---\n');
+      } catch { return ''; }
+    }
+    sendJSON(res, {
+      reasoning: tailLines(reasoningFile, lines),
+      responses: tailLines(responsesFile, lines),
+      log_dir: LOG_DIR
+    });
     return;
   }
 
