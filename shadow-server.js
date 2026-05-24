@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // shadow.crousia.com — serves the Serpent's modules and API endpoints to the Kingdom
+import 'dotenv/config';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';

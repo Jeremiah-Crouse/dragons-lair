@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// king-adam.js — Telegram polling loop with interrupt flow
-// Polls Telegram, desummons (restarts serve), sends message to session, logs reasoning+response
+// king-adam.js — Telegram polling loop with abort flow
+// Polls Telegram, aborts previous session, sends new message, logs reasoning+response
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -43,7 +43,7 @@ function tgSend(chatId, text) {
   req.end();
 }
 
-function api(method, pathname, body, timeoutMs = 60000, port = API_PORT) {
+function api(method, pathname, body, timeoutMs = 120000, port = API_PORT) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : '';
     const opts = { hostname: '127.0.0.1', port, path: pathname, method,
@@ -61,35 +61,9 @@ function api(method, pathname, body, timeoutMs = 60000, port = API_PORT) {
   });
 }
 
-function desummon() {
-  return new Promise((resolve, reject) => {
-    const req = http.get('http://127.0.0.1:8080/api/desummon', (res) => {
-      res.resume();
-      resolve();
-    });
-    req.on('error', reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('desummon timeout')); });
-  });
-}
+const TOOL_INSTRUCTIONS = `Messages are delivered directly to you. To respond, use:
 
-function waitForServe(timeout = 30000) {
-  const start = Date.now();
-  return new Promise((resolve) => {
-    const check = () => {
-      const s = http.get('http://127.0.0.1:4096/', (res) => {
-        res.resume();
-        resolve(true);
-      });
-      s.on('error', () => {
-        if (Date.now() - start > timeout) resolve(false);
-        else setTimeout(check, 1000);
-      });
-      s.setTimeout(3000, () => { s.destroy(); });
-    };
-    // Wait a moment for systemctl to start before first check
-    setTimeout(check, 2000);
-  });
-}
+>> telegram send chat_id="7408716961" text="Your message here"
 
 const TOOL_INSTRUCTIONS = `You have full tool access. You can use any built-in tool (Bash, Read, Grep, Glob, etc.) freely.
 
@@ -124,24 +98,15 @@ async function handleUpdate(update) {
 
   console.log(`[poll] ${prompt.slice(0, 100)}`);
 
-  // Interrupt: desummon to clear session context
+  // Interrupt: abort any running session
   try {
-    await desummon();
-    console.log('[poll] Desummoned');
-  } catch (e) {
-    console.error('[poll] Desummon failed:', e.message);
-    return;
+    await api('POST', `/session/${SID}/abort`, null, 5000);
+    console.log('[poll] Aborted previous session');
+  } catch {
+    console.log('[poll] No session to abort');
   }
 
-  // Wait for opencode serve to restart
-  const up = await waitForServe();
-  if (!up) {
-    console.error('[poll] Serve did not come back up');
-    return;
-  }
-  console.log('[poll] Serve restarted');
-
-  // Send message to fresh session (with retry)
+  // Send message (with retry)
   let result;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -155,8 +120,6 @@ async function handleUpdate(update) {
       console.log(`[poll] Attempt ${attempt + 1} failed: ${e.message}`);
       if (attempt < 2) {
         await new Promise(r => setTimeout(r, 2000));
-        // Ensure serve is actually up before retry
-        if (!(await waitForServe(10000))) break;
       }
     }
   }
