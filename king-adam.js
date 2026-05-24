@@ -70,132 +70,38 @@ function buildPrompt(update) {
   return `[Telegram: ${chatType} from ${sender} (chat_id ${chat.id})]\n${text}`;
 }
 
-// Subscribe to SSE and accumulate deltas for a specific session
-function captureResponse(sessionID, onReasoning, onText, onDone, timeout = 120000) {
-  const partTypes = new Map();
-  let reasoningAccum = '';
-  let textAccum = '';
-  let streamEnded = false;
-  let sawReasoning = false;
-  let insertedSep = false;
-  let timer = setTimeout(() => {
-    streamEnded = true;
-    onDone(reasoningAccum, textAccum);
-  }, timeout);
-
-  const req = http.get(`http://127.0.0.1:${API_PORT}/event`, (res) => {
-    let buf = '';
-    res.on('data', d => {
-      buf += d.toString();
-      const lines = buf.split('\n');
-      buf = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue;
-        try {
-          const ev = JSON.parse(line.slice(5));
-          if (streamEnded) return;
-
-          if (ev.type === 'message.part.updated') {
-            const p = ev.properties?.part;
-            if (p && !p.time?.end && (p.type === 'reasoning' || p.type === 'text')) {
-              partTypes.set(p.id, p.type);
-            }
-          }
-
-          if (ev.type === 'message.part.delta') {
-            const props = ev.properties;
-            if (props.sessionID !== sessionID) return;
-            const ptype = partTypes.get(props.partID);
-            if (ptype === 'reasoning') {
-              sawReasoning = true;
-              reasoningAccum += props.delta;
-              if (onReasoning) onReasoning(props.delta);
-            } else if (ptype === 'text') {
-              if (sawReasoning && !insertedSep) {
-                insertedSep = true;
-              }
-              textAccum += props.delta;
-              if (onText) onText(props.delta);
-            }
-          }
-
-          // Detect end of message
-          if (ev.type === 'message.updated' && ev.properties?.message?.time?.end) {
-            streamEnded = true;
-            clearTimeout(timer);
-            onDone(reasoningAccum, textAccum);
-          }
-          if (ev.type === 'message.part.finished') {
-            streamEnded = true;
-            clearTimeout(timer);
-            onDone(reasoningAccum, textAccum);
-          }
-        } catch {}
-      }
-    });
-    res.on('end', () => {
-      if (!streamEnded) {
-        streamEnded = true;
-        clearTimeout(timer);
-        onDone(reasoningAccum, textAccum);
-      }
-    });
-  });
-  req.on('error', () => {
-    streamEnded = true;
-    clearTimeout(timer);
-    onDone(reasoningAccum, textAccum);
-  });
-}
-
 async function handleUpdate(update) {
   const prompt = buildPrompt(update);
   if (!prompt) return;
 
   console.log(`[poll] ${prompt.slice(0, 100)}`);
 
-  return new Promise((resolve) => {
-    // Subscribe to SSE before posting
-    captureResponse(SID, 
-      // onReasoning — log only
-      (delta) => {},
-      // onText — log only
-      (delta) => {},
-      // onDone — send response to Telegram
-      async (reasoning, text) => {
-        const response = text.trim();
-        if (reasoning.trim()) {
-          appendLog(THINKING_LOG, reasoning.trim());
-          console.log(`[thinking] ${reasoning.trim().slice(0, 80)}...`);
-        }
-        if (response) {
-          appendLog(RESPONSE_LOG, response);
-          console.log(`[response] ${response.slice(0, 80)}...`);
-          // Send response back to the chat that triggered it
-          const chatId = update.message?.chat?.id;
-          if (chatId) {
-            tgSend(chatId, response);
-            console.log(`[tg] Sent response to ${chatId}`);
-          }
-        }
-        resolve();
-      }
-    );
+  try {
+    const result = await api('POST', `/session/${SID}/message`, {
+      parts: [{ type: 'text', text: prompt }],
+      model: { providerID: 'opencode-go', modelID: 'deepseek-v4-flash' }
+    });
+    console.log(`[poll] Summoned for update ${update.update_id}`);
 
-    // Wait a moment for SSE connection, then POST message
-    setTimeout(async () => {
-      try {
-        await api('POST', `/session/${SID}/message`, {
-          parts: [{ type: 'text', text: prompt }],
-          model: { providerID: 'opencode-go', modelID: 'deepseek-v4-flash' }
-        });
-        console.log(`[poll] Summoned for update ${update.update_id}`);
-      } catch (e) {
-        console.error('[poll] Summon failed:', e.message);
-        resolve();
+    const reasoning = result?.parts?.find(p => p.type === 'reasoning')?.text || '';
+    const response = result?.parts?.find(p => p.type === 'text')?.text || '';
+
+    if (reasoning.trim()) {
+      appendLog(THINKING_LOG, reasoning.trim());
+      console.log(`[thinking] ${reasoning.trim().slice(0, 80)}...`);
+    }
+    if (response.trim()) {
+      appendLog(RESPONSE_LOG, response.trim());
+      console.log(`[response] ${response.trim().slice(0, 80)}...`);
+      const chatId = update.message?.chat?.id;
+      if (chatId) {
+        tgSend(chatId, response.trim());
+        console.log(`[tg] Sent response to ${chatId}`);
       }
-    }, 500);
-  });
+    }
+  } catch (e) {
+    console.error('[poll] Summon failed:', e.message);
+  }
 }
 
 async function poll() {
