@@ -15,6 +15,5 @@
     "webfetch": "allow",
     "skill": "allow",
     "lsp": "allow"
-  },
-  "plugin": ["./plugins/no-autocontinue.ts"]
+  }
 }
