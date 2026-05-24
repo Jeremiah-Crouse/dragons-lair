@@ -1,0 +1,1 @@
+{"name":"king-adam","type":"module","dependencies":{"yjs":"^13.6.21","y-websocket":"^2.0.4","ws":"^8.16.0","dotenv":"^16.4.5"}}
