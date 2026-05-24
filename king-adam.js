@@ -75,28 +75,19 @@ function desummon() {
 function waitForServe(timeout = 30000) {
   const start = Date.now();
   return new Promise((resolve) => {
-    let sawDown = false;
     const check = () => {
       const s = http.get('http://127.0.0.1:4096/', (res) => {
         res.resume();
-        if (!sawDown) {
-          // Still the old process — wait for it to go down
-          if (Date.now() - start > timeout) resolve(false);
-          else setTimeout(check, 500);
-        } else {
-          resolve(true);
-        }
+        resolve(true);
       });
       s.on('error', () => {
-        if (!sawDown) {
-          sawDown = true; // Server went down — restart confirmed
-        }
         if (Date.now() - start > timeout) resolve(false);
         else setTimeout(check, 1000);
       });
       s.setTimeout(3000, () => { s.destroy(); });
     };
-    check();
+    // Wait a moment for systemctl to start before first check
+    setTimeout(check, 2000);
   });
 }
 
