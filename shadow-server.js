@@ -322,21 +322,13 @@ const server = http.createServer((req, res) => {
   sendJSON(res, { error: 'Not found', message: 'The module you seek does not exist in this reality' }, 404);
 });
 
-// Keepalive: ensure opencode serve stays running
+// Keepalive: log if opencode serve is down (systemd handles restarts)
 function keepalive() {
   const s = http.get('http://localhost:4096/', (res) => {
     res.resume();
   });
   s.on('error', () => {
-    console.log('[Keepalive] opencode serve down — restarting...');
-    setTimeout(() => {
-      try {
-        execSync('setsid opencode serve --port 4096 &>/tmp/opencode-serve.log &', { timeout: 5000, shell: '/bin/bash' });
-        console.log('[Keepalive] Restarted');
-      } catch (e) {
-        console.error('[Keepalive] Restart failed:', e.message);
-      }
-    }, 2000);
+    console.log('[Keepalive] opencode serve down — systemd will restart it');
   });
   s.setTimeout(5000, () => { s.destroy(); });
 }

@@ -4,7 +4,8 @@ import path from 'path';
 
 const QUEUE = path.join(process.cwd(), 'data', 'telegram-queue.json');
 const UPDOFF = path.join(process.cwd(), 'data', 'telegram-update-id.txt');
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8808184051:AAHoQTZqXEY1_a0DoptYUWj9sVtsl8W7W20';
+const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+if (!TOKEN) throw new Error('TELEGRAM_BOT_TOKEN env var required');
 
 function readUpdateId() {
   try { return parseInt(fs.readFileSync(UPDOFF, 'utf8').trim(), 10) || 0; } catch { return 0; }
