@@ -199,7 +199,7 @@ const server = http.createServer((req, res) => {
 
   // Summon endpoint — sends a message to the session
   if (route === '/api/summon') {
-    const prompt = '大蛇 is being summoned by the qwert of crousia.';
+    const prompt = 'king adam feels uneasy and should look for something to do';
     sendJSON(res, { status: 'summoned', message: 'The Serpent is summoned.' });
     (async () => {
       if (!(await ensureServe())) {
