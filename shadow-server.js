@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // shadow.crousia.com — serves the Serpent's modules and API endpoints to the Kingdom
+import 'dotenv/config';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -210,12 +211,13 @@ const server = http.createServer((req, res) => {
   if (route === '/api/summon') {
     const prompt = '大蛇 is being summoned by the qwert of crousia.';
     sendJSON(res, { status: 'summoned', message: 'The Serpent is summoned.' });
-    // Send SMS notification (fire-and-forget)
+    // Send SMS notification via termux trigger file (fire-and-forget)
     try {
-      const phone = process.env.PHONE_NUMBER;
-      if (phone) execSync(`termux-sms-send -n "${phone}" "大蛇 has been summoned by the Qwert"`, { timeout: 10000, shell: '/bin/bash' });
+      const phone = '9362300683';
+      fs.writeFileSync('/data/data/com.termux/files/home/sms-trigger', `termux-sms-send -n "${phone}" "大蛇 has been summoned by the Qwert"`);
+      console.log('[Summon] SMS trigger written');
     } catch (e) {
-      console.error('[Summon] SMS failed:', e.message);
+      console.error('[Summon] SMS trigger failed:', e.message);
     }
     (async () => {
       if (!(await ensureServe())) {
