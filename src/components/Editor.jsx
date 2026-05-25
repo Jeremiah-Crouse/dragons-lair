@@ -113,7 +113,8 @@ function AutoSavePlugin() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content: JSON.stringify(json), date: today }),
-        }).catch((err) => console.error("Save failed", err));
+        }).then(r => { if (!r.ok) r.json().then(d => console.error("Archive save failed:", d.error)); })
+          .catch((err) => console.error("Archive network error:", err));
       });
     };
     return editor.registerUpdateListener(() => {

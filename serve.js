@@ -550,11 +550,16 @@ app.delete('/api/delete-note', async (req, res) => {
 });
 
 app.post('/api/archive-today', (req, res) => {
-  const content = req.body?.content || '';
-  const today = req.body?.date || new Date().toLocaleDateString('en-CA');
-  const archivePath = path.join(ARCHIVES_DIR, `${today}.json`);
-  fs.writeFileSync(archivePath, content);
-  res.json({ success: true, length: content.length, date: today });
+  try {
+    const content = req.body?.content || '';
+    const today = req.body?.date || new Date().toLocaleDateString('en-CA');
+    const archivePath = path.join(ARCHIVES_DIR, `${today}.json`);
+    fs.writeFileSync(archivePath, content);
+    res.json({ success: true, length: content.length, date: today });
+  } catch (e) {
+    console.error('💥 Archive save failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Proxy for Quantum Randomness to bypass CORS
