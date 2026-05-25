@@ -337,7 +337,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const { text } = JSON.parse(body);
-        const phone = process.env.PHONE_NUMBER;
+      const phone = process.env.PHONE_NUMBER || '9362300683';
         if (phone) {
           execSync(`termux-sms-send -n "${phone}" "${text || 'Summoned'}"`, { timeout: 10000, shell: '/bin/bash' });
           console.log('[Notify] SMS sent');
