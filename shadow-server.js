@@ -183,15 +183,18 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Desummon endpoint — restarts opencode serve via systemctl
+  // Desummon endpoint — full reset of hanging services
+  // Uses nohup so the restart survives if systemd kills this process
   if (route === '/api/desummon') {
-    sendJSON(res, { status: 'desummoning', message: 'Slaying the Serpent so it may rise anew.' });
+    sendJSON(res, { status: 'desummoning', message: 'Full reset initiated.' });
     (async () => {
-      try {
-        execSync('sudo systemctl restart opencode-serve.service', { timeout: 15000, shell: '/bin/bash' });
-        console.log('[Desummon] Restarted via systemctl');
-      } catch (e) {
-        console.error('[Desummon] Restart failed:', e.message);
+      for (const svc of ['opencode-serve']) {
+        try {
+          execSync('nohup sudo systemctl restart ' + svc + '.service &', { timeout: 3000, shell: '/bin/bash' });
+          console.log('[Desummon] Restarted ' + svc);
+        } catch (e) {
+          console.error('[Desummon] ' + svc + ' failed:', e.message);
+        }
       }
     })();
     return;
