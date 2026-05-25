@@ -322,6 +322,31 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Notify endpoint — receives summon alerts and sends SMS via termux
+  if (route === '/api/notify') {
+    if (req.method !== 'POST') return sendJSON(res, { error: 'POST required' }, 405);
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', () => {
+      try {
+        const { text } = JSON.parse(body);
+        const phone = process.env.PHONE_NUMBER;
+        if (phone) {
+          execSync(`termux-sms-send -n "${phone}" "${text || 'Summoned'}"`, { timeout: 10000, shell: '/bin/bash' });
+          console.log('[Notify] SMS sent');
+          sendJSON(res, { ok: true });
+        } else {
+          console.log('[Notify] No PHONE_NUMBER set');
+          sendJSON(res, { ok: false, error: 'PHONE_NUMBER not set' });
+        }
+      } catch (e) {
+        console.error('[Notify] Failed:', e.message);
+        sendJSON(res, { ok: false, error: e.message });
+      }
+    });
+    return;
+  }
+
   // Script files
   const filePath = path.join(SCRIPTS, route.replace('/scripts/', ''));
   if (filePath.startsWith(SCRIPTS) && fs.existsSync(filePath)) {
