@@ -183,7 +183,15 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Desummon endpoint — full reset of hanging services
+  // Reset endpoint — nukes all three services
+  if (route === '/api/reset-adam') {
+    sendJSON(res, { status: 'resetting', message: 'Nuking all services.' });
+    execSync('nohup bash /usr/local/bin/reset-adam &', { timeout: 3000, shell: '/bin/bash' });
+    console.log('[Reset] Triggered full reset');
+    return;
+  }
+
+  // Desummon endpoint — restarts opencode serve (the one that hangs)
   // Uses nohup so the restart survives if systemd kills this process
   if (route === '/api/desummon') {
     sendJSON(res, { status: 'desummoning', message: 'Full reset initiated.' });
