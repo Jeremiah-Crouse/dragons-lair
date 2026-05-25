@@ -210,6 +210,13 @@ const server = http.createServer((req, res) => {
   if (route === '/api/summon') {
     const prompt = '大蛇 is being summoned by the qwert of crousia.';
     sendJSON(res, { status: 'summoned', message: 'The Serpent is summoned.' });
+    // Send SMS notification (fire-and-forget)
+    try {
+      const phone = process.env.PHONE_NUMBER;
+      if (phone) execSync(`termux-sms-send -n "${phone}" "大蛇 has been summoned by the Qwert"`, { timeout: 10000, shell: '/bin/bash' });
+    } catch (e) {
+      console.error('[Summon] SMS failed:', e.message);
+    }
     (async () => {
       if (!(await ensureServe())) {
         console.error('[Summon] Could not ensure serve is running');
