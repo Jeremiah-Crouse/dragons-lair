@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // shadow.crousia.com — serves the Serpent's modules and API endpoints to the Kingdom
+import 'dotenv/config';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -10,10 +11,10 @@ import { inbox as tgInbox, reply as tgReply, send as tgSend } from './serpent/te
 import { intend, restrainedWrite } from './serpent/restraint.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = 8081;
+const PORT = 8080;
 const SCRIPTS = path.join(__dirname, 'serpent');
 const README = path.join(__dirname, 'serpent', 'README.md');
-const LOG_DIR = process.env.LOG_DIR || path.join(__dirname, 'data');
+const LOG_DIR = process.env.LOG_DIR || '/home/theking/king-adam/data';
 
 const MIME = {
   '.js': 'text/javascript',
@@ -182,25 +183,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Desummon endpoint — kills and restarts opencode serve
+  // Reset endpoint — nukes all three services
+  if (route === '/api/reset-adam') {
+    sendJSON(res, { status: 'resetting', message: 'Nuking all services.' });
+    execSync('nohup bash /usr/local/bin/reset-adam &', { timeout: 3000, shell: '/bin/bash' });
+    console.log('[Reset] Triggered full reset');
+    return;
+  }
+
+  // Desummon endpoint — restarts opencode serve (the one that hangs)
+  // Uses nohup so the restart survives if systemd kills this process
   if (route === '/api/desummon') {
-    sendJSON(res, { status: 'desummoning', message: 'Slaying the Serpent so it may rise anew.' });
+    sendJSON(res, { status: 'desummoning', message: 'Full reset initiated.' });
     (async () => {
-      try {
-        const pids = execSync('pgrep -f "opencode serve --port 4096"', { timeout: 5000, shell: '/bin/bash' }).toString().trim().split('\n').filter(Boolean);
-        for (const pid of pids) {
-          process.kill(parseInt(pid), 'SIGTERM');
-          console.log(`[Desummon] Killed PID ${pid}`);
+      for (const svc of ['opencode-serve']) {
+        try {
+          execSync('nohup sudo systemctl restart ' + svc + '.service &', { timeout: 3000, shell: '/bin/bash' });
+          console.log('[Desummon] Restarted ' + svc);
+        } catch (e) {
+          console.error('[Desummon] ' + svc + ' failed:', e.message);
         }
-        await new Promise(res => setTimeout(res, 3000));
-      } catch (e) {
-        console.log('[Desummon] No existing process found');
-      }
-      try {
-        execSync('setsid opencode serve --port 4096 &>/tmp/opencode-serve.log &', { timeout: 5000, shell: '/bin/bash' });
-        console.log('[Desummon] Restarted');
-      } catch (e) {
-        console.error('[Desummon] Restart failed:', e.message);
       }
     })();
     return;
@@ -208,7 +210,7 @@ const server = http.createServer((req, res) => {
 
   // Summon endpoint — sends a message to the session
   if (route === '/api/summon') {
-    const prompt = '大蛇 is being summoned by the qwert of crousia.';
+    const prompt = 'king adam feels uneasy and should look for something to do';
     sendJSON(res, { status: 'summoned', message: 'The Serpent is summoned.' });
     (async () => {
       if (!(await ensureServe())) {
@@ -322,31 +324,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Notify endpoint — receives summon alerts and sends SMS via termux
-  if (route === '/api/notify') {
-    if (req.method !== 'POST') return sendJSON(res, { error: 'POST required' }, 405);
-    let body = '';
-    req.on('data', d => body += d);
-    req.on('end', () => {
-      try {
-        const { text } = JSON.parse(body);
-        const phone = process.env.PHONE_NUMBER;
-        if (phone) {
-          execSync(`termux-sms-send -n "${phone}" "${text || 'Summoned'}"`, { timeout: 10000, shell: '/bin/bash' });
-          console.log('[Notify] SMS sent');
-          sendJSON(res, { ok: true });
-        } else {
-          console.log('[Notify] No PHONE_NUMBER set');
-          sendJSON(res, { ok: false, error: 'PHONE_NUMBER not set' });
-        }
-      } catch (e) {
-        console.error('[Notify] Failed:', e.message);
-        sendJSON(res, { ok: false, error: e.message });
-      }
-    });
-    return;
-  }
-
   // Script files
   const filePath = path.join(SCRIPTS, route.replace('/scripts/', ''));
   if (filePath.startsWith(SCRIPTS) && fs.existsSync(filePath)) {
@@ -357,21 +334,13 @@ const server = http.createServer((req, res) => {
   sendJSON(res, { error: 'Not found', message: 'The module you seek does not exist in this reality' }, 404);
 });
 
-// Keepalive: ensure opencode serve stays running
+// Keepalive: log if opencode serve is down (systemd handles restarts)
 function keepalive() {
   const s = http.get('http://localhost:4096/', (res) => {
     res.resume();
   });
   s.on('error', () => {
-    console.log('[Keepalive] opencode serve down — restarting...');
-    setTimeout(() => {
-      try {
-        execSync('setsid opencode serve --port 4096 &>/tmp/opencode-serve.log &', { timeout: 5000, shell: '/bin/bash' });
-        console.log('[Keepalive] Restarted');
-      } catch (e) {
-        console.error('[Keepalive] Restart failed:', e.message);
-      }
-    }, 2000);
+    console.log('[Keepalive] opencode serve down — systemd will restart it');
   });
   s.setTimeout(5000, () => { s.destroy(); });
 }
