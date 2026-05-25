@@ -385,12 +385,29 @@ function keepalive() {
   s.setTimeout(5000, () => { s.destroy(); });
 }
 
+// Keepalive: ensure cloudflared tunnel stays running (runs inside proot)
+function tunnelKeepalive() {
+  try {
+    execSync('pgrep -x cloudflared', { timeout: 3000 });
+  } catch {
+    console.log('[Tunnel] cloudflared down — restarting...');
+    try {
+      execSync('nohup cloudflared tunnel run &>/tmp/cloudflared.log &', { timeout: 5000, shell: '/bin/bash' });
+      console.log('[Tunnel] Restarted');
+    } catch (e) {
+      console.error('[Tunnel] Restart failed:', e.message);
+    }
+  }
+}
+
 server.listen(PORT, () => {
   console.log(`🧙 shadow.crousia.com/scripts serving on port ${PORT}`);
   console.log(`   Available modules:`);
   fs.readdirSync(SCRIPTS).forEach(f => console.log(`   - /scripts/${f}`));
   keepalive();
+  tunnelKeepalive();
   setInterval(keepalive, 30000);
+  setInterval(tunnelKeepalive, 30000);
 });
 
 // Connect Yjs at startup for /api/yjs endpoint
