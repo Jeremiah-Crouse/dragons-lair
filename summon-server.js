@@ -54,7 +54,7 @@ http.createServer((req, res) => {
   if (req.url === '/api/summon') {
     summoned++;
     const msg = `Da She is requested at the Qwert.`;
-    if (process.env.GVOICE_SID) {
+    if (process.env.GVOICE_SID || process.env.GVOICE_SAPISID || SAPISID || SID) {
       gvoiceSms(PHONE, msg).then(r => console.log('[GVoice]', r.status)).catch(e => console.error('[GVoice]', e.message));
     } else {
       try { require('child_process').execSync(`termux-sms-send -n "${PHONE}" "${msg}"`, { timeout: 5000 }); } catch (e) {}
