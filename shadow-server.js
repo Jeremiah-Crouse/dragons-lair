@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { connect as yjsConnect, getDocText, writeToLexical } from './serpent/yjs.js';
-import { inbox as tgInbox, reply as tgReply, send as tgSend } from './serpent/telegram.js';
+import { inbox as tgInbox, reply as tgReply, send as tgSend, poll as tgPoll } from './serpent/telegram.js';
 import { intend, restrainedWrite } from './serpent/restraint.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -331,6 +331,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Send endpoint — sends a message to the phone via Telegram
+  if (route === '/api/send') {
+    if (req.method !== 'POST') return sendJSON(res, { error: 'POST required' }, 405);
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', async () => {
+      try {
+        const { text } = JSON.parse(body);
+        if (!text || !text.trim()) return sendJSON(res, { error: 'text required' }, 400);
+        const chatId = process.env.PHONE_CHAT_ID || '7408716961';
+        await tgSend(chatId, `📩 from cristio.ru: ${text.trim()}`);
+        console.log('[Send] Sent to phone');
+        sendJSON(res, { ok: true });
+      } catch (e) {
+        sendJSON(res, { ok: false, error: e.message });
+      }
+    });
+    return;
+  }
+
   // Notify endpoint — receives summon alerts and sends SMS via termux
   if (route === '/api/notify') {
     if (req.method !== 'POST') return sendJSON(res, { error: 'POST required' }, 405);
@@ -419,4 +439,11 @@ server.listen(PORT, () => {
   } catch (e) {
     console.log('[Yjs] Not available:', e.message);
   }
+})();
+
+// Poll Telegram periodically to fill the inbox
+(async () => {
+  const poll = () => tgPoll().then(r => console.log('[TG]', r)).catch(e => console.error('[TG] error:', e.message));
+  await poll();
+  setInterval(poll, 5000);
 })();
