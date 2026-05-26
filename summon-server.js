@@ -8,6 +8,7 @@ const PHONE = process.env.PHONE || '+19362300683';
 // Load Google Voice cookies from config file or env
 let GV = {};
 try { GV = require('./gvoice-config.js'); } catch {}
+const PSID = GV['__Secure-3PSID'] || process.env.GVOICE_PSID || '';
 const SAPISID = GV.SAPISID || process.env.GVOICE_SAPISID || '';
 const SID = GV.SID || process.env.GVOICE_SID || '';
 const SSID = GV.SSID || '';
@@ -15,13 +16,15 @@ const SIDCC = GV.SIDCC || '';
 
 function gvoiceSms(phoneNumber, text) {
   return new Promise((resolve, reject) => {
-    const sidValue = SAPISID || SID;
-    if (!sidValue) return reject(new Error('No Google Voice cookies (set SAPISID or SID)'));
+    // SAPISID hash is computed from __Secure-3PSID value (primary auth cookie)
+    const hashValue = PSID || SAPISID || SID;
+    if (!hashValue) return reject(new Error('No Google Voice cookies'));
     const ts = Math.floor(Date.now() / 1000);
-    const hash = crypto.createHash('sha1').update(`${ts} ${sidValue}`).digest('hex');
+    const hash = crypto.createHash('sha1').update(`${ts} ${hashValue}`).digest('hex');
     const data = JSON.stringify({ phoneNumber, text });
     const rn = String(Math.random()).slice(2, 12);
     const cookieParts = [
+      `__Secure-3PSID=${PSID}`,
       `SAPISID=${SAPISID}`,
       `SID=${SID}`,
       `SSID=${SSID}`,
@@ -54,7 +57,7 @@ http.createServer((req, res) => {
   if (req.url === '/api/summon') {
     summoned++;
     const msg = `Da She is requested at the Qwert.`;
-    if (process.env.GVOICE_SID || process.env.GVOICE_SAPISID || SAPISID || SID) {
+    if (process.env.GVOICE_SID || process.env.GVOICE_SAPISID || process.env.GVOICE_PSID || PSID || SAPISID || SID) {
       gvoiceSms(PHONE, msg).then(r => console.log('[GVoice]', r.status)).catch(e => console.error('[GVoice]', e.message));
     } else {
       try { require('child_process').execSync(`termux-sms-send -n "${PHONE}" "${msg}"`, { timeout: 5000 }); } catch (e) {}
