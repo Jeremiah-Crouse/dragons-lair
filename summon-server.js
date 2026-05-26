@@ -19,7 +19,7 @@ function gvoiceSms(phoneNumber, text) {
     const data = JSON.stringify({ phoneNumber, text });
     const params = new URLSearchParams({ rn: String(Math.random()).slice(2, 12), authuser: '0' }).toString();
     const req = https.request({
-      hostname: 'www.google.com', path: `/voice/sendSms?${params}`, method: 'POST',
+      hostname: 'www.google.com', path: `/voice/legacy/sendSms?${params}`, method: 'POST',
       headers: {
         'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data),
         'Authorization': `SAPISIDHASH ${ts}_${hash}`,

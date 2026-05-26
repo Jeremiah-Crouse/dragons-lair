@@ -25,7 +25,7 @@ function sendSms(phoneNumber, text, cookieValue) {
 
     const opts = {
       hostname: 'www.google.com',
-      path: `/voice/sendSms?${params}`,
+      path: `/voice/legacy/sendSms?${params}`,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
