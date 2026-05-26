@@ -1,53 +1,27 @@
 #!/usr/bin/env node
 const http = require('http');
 const https = require('https');
-const crypto = require('crypto');
 const port = process.env.PORT || 3456;
+const NTFY_TOPIC = process.env.NTFY_TOPIC || 'da-she-alerts';
 const PHONE = process.env.PHONE || '+19362300683';
 
-// Load Google Voice cookies from config file or env
-let GV = {};
-try { GV = require('./gvoice-config.js'); } catch {}
-const PSID = GV['__Secure-3PSID'] || process.env.GVOICE_PSID || '';
-const SAPISID = GV.SAPISID || process.env.GVOICE_SAPISID || '';
-const SID = GV.SID || process.env.GVOICE_SID || '';
-const SSID = GV.SSID || '';
-const SIDCC = GV.SIDCC || '';
-
-function gvoiceSms(phoneNumber, text) {
+function ntfySend(text) {
   return new Promise((resolve, reject) => {
-    // SAPISID hash is computed from __Secure-3PSID value (primary auth cookie)
-    const hashValue = PSID || SAPISID || SID;
-    if (!hashValue) return reject(new Error('No Google Voice cookies'));
-    const ts = Math.floor(Date.now() / 1000);
-    const hash = crypto.createHash('sha1').update(`${ts} ${hashValue}`).digest('hex');
-    const data = JSON.stringify({ phoneNumber, text });
-    const rn = String(Math.random()).slice(2, 12);
-    const cookieParts = [
-      `__Secure-3PSID=${PSID}`,
-      `SAPISID=${SAPISID}`,
-      `SID=${SID}`,
-      `SSID=${SSID}`,
-      `SIDCC=${SIDCC}`,
-    ].filter(p => p.includes('=') && p.split('=')[1]).join('; ');
-
-    const tryEndpoint = (path) => new Promise((res, rej) => {
-      const req = https.request({
-        hostname: 'voice.google.com', path, method: 'POST',
-        headers: {
-          'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data),
-          'Authorization': `SAPISIDHASH ${ts}_${hash}`,
-          'X-Goog-AuthUser': '0', 'X-Origin': 'https://voice.google.com',
-          'Origin': 'https://voice.google.com', 'Referer': 'https://voice.google.com/',
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          'Cookie': cookieParts
-        }
-      }, (r) => { let b=''; r.on('data', d=>b+=d); r.on('end', ()=>res({status:r.statusCode,body:b.slice(0,200)})); });
-      req.on('error', rej);
-      req.write(data);
-      req.end();
+    const data = JSON.stringify({ topic: NTFY_TOPIC, message: text, title: '大蛇', priority: 4 });
+    const req = https.request({
+      hostname: 'ntfy.sh', path: '/', method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(data),
+      }
+    }, (res) => {
+      let body = '';
+      res.on('data', d => body += d);
+      res.on('end', () => resolve({ status: res.statusCode, body: body.slice(0, 100) }));
     });
-    tryEndpoint(`/sendSms?rn=${rn}&authuser=0`).then(resolve).catch(reject);
+    req.on('error', reject);
+    req.write(data);
+    req.end();
   });
 }
 
@@ -57,14 +31,10 @@ http.createServer((req, res) => {
   if (req.url === '/api/summon') {
     summoned++;
     const msg = `Da She is requested at the Qwert.`;
-    if (process.env.GVOICE_SID || process.env.GVOICE_SAPISID || process.env.GVOICE_PSID || PSID || SAPISID || SID) {
-      gvoiceSms(PHONE, msg).then(r => console.log('[GVoice]', r.status)).catch(e => console.error('[GVoice]', e.message));
-    } else {
-      try { require('child_process').execSync(`termux-sms-send -n "${PHONE}" "${msg}"`, { timeout: 5000 }); } catch (e) {}
-    }
+    ntfySend(msg).then(r => console.log('[ntfy]', r.status)).catch(e => console.error('[ntfy]', e.message));
     res.end(JSON.stringify({ status: 'summoned', message: 'Da She!', count: summoned }));
   } else {
     res.end(JSON.stringify({ status: 'listening', message: 'The dragon remains unshaken.', summoned }));
   }
-}).listen(port, () => console.log('Summon server on :' + port + ', SMS to ' + PHONE));
+}).listen(port, () => console.log('Summon server on :' + port + ', ntfy topic: ' + NTFY_TOPIC));
 
